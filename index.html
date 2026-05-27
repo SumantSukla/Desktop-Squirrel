@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      user-select: none;
+    }
+
+    .pet-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+
+    img#pet-img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      image-rendering: pixelated; 
+      pointer-events: none; 
+    }
+
+    img#bar-img {
+      position: absolute;
+      left: 19px; 
+      top: 35px;
+      display: none;
+      pointer-events: none;
+      image-rendering: pixelated;
+    }
+
+    .hitbox {
+      position: absolute;
+      cursor: pointer;
+      width: 70px;          
+      height: 65px;         
+      bottom: 0px;         
+      left: 37px;           
+      background: rgba(255, 0, 0, 0); /* Make this rgba(255,0,0,0.3) if you want to debug its area */
+      border-radius: 20%;                 
+      touch-action: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="pet-container">
+    <img id="pet-img" src="./assets/squirrel_idle_right.gif" alt="Desktop Pet">
+    <img id="bar-img" src="./assets/bar5.png" alt="Hunger Bar">
+    <div class="hitbox" id="pet-hitbox"></div>
+  </div>
+
+  <script>
+    const petImg = document.getElementById('pet-img');
+    const barImg = document.getElementById('bar-img');
+    const hitbox = document.getElementById('pet-hitbox');
+
+    let screenX = 1920, screenY = 1080;
+    let workAreaX = 0, workAreaY = 0;
+    const widgetWidth = 150, widgetHeight = 150;
+
+    let x = 0, y = 0; 
+    let orientation = 'right';
+    let barCount = 5; 
+    let barVar = false; 
+    
+    let currentState = 'falling'; 
+    let actionTimeout = null;
+    let runInterval = null;
+    let fallVelocity = 1; // Start with a small velocity boost so it doesn't get stuck
+
+    // Initialize metrics asynchronously safely
+    window.electronAPI.getScreenWorkArea().then((workArea) => {
+      screenX = workArea.width;
+      screenY = workArea.height;
+      workAreaX = workArea.x;
+      workAreaY = workArea.y;
+
+      // Now set position to start the drop sequence
+      x = workAreaX + (screenX / 2) - (widgetWidth / 2);
+      y = workAreaY - 140; // Spawn just slightly past the monitor edge border
+
+      window.electronAPI.moveWindow({ x, y });
+      
+      // Give Electron 50ms to shift the window context layout securely before initiating fall frame loops
+      setTimeout(() => {
+        startFalling();
+      }, 50);
+    });
+    
+    function changeAnimation(action) {
+      petImg.src = `./assets/squirrel_${action}_${orientation}.gif`;
+    }
+
+    function runActionTicker() {
+      if (['dead', 'dragging', 'falling', 'eating'].includes(currentState)) return;
+
+      const num = Math.floor(Math.random() * 500) + 1;
+      console.log(num);
+      if (num < 360) {
+        idle();
+      } else if (num < 450) {
+        look();
+      } else {
+        run();
+      }
+    }
+
+    function idle() {
+      currentState = 'idle';
+      changeAnimation('idle');
+      actionTimeout = setTimeout(runActionTicker, 1800);
+    }
+
+    function look() {
+      currentState = 'look';
+      changeAnimation('look');
+      actionTimeout = setTimeout(runActionTicker, 900);
+    }
+
+    function run() {
+      currentState = 'run';
+      const numx = Math.floor(Math.random() * (screenX - widgetWidth - 70)) + 50 + workAreaX;
+      orientation = numx > x ? 'right' : 'left';
+      changeAnimation('run');
+
+      if (runInterval) clearInterval(runInterval);
+      runInterval = setInterval(() => {
+        if (currentState !== 'run') {
+          clearInterval(runInterval);
+          return;
+        }
+
+        const step = orientation === 'right' ? 3 : -3;
+        x += step;
+
+        if ((orientation === 'right' && x >= numx) || (orientation === 'left' && x <= numx)) {
+          x = numx;
+          clearInterval(runInterval);
+          runActionTicker();
+        }
+
+        window.electronAPI.moveWindow({ x, y });
+      }, 16);
+    }
+
+    function startFalling() {
+      currentState = 'falling';
+      fallVelocity = 1;
+      changeAnimation('fall');
+      fallLoop();
+    }
+
+    function fallLoop() {
+      if (currentState !== 'falling') return;
+
+      const groundY = workAreaY + screenY - widgetHeight;
+
+      if (y < groundY) {
+        y += fallVelocity;
+        fallVelocity += 0.25; // Smooth gravity steps
+        window.electronAPI.moveWindow({ x, y });
+        requestAnimationFrame(fallLoop);
+      } else {
+        y = groundY;
+        window.electronAPI.moveWindow({ x, y });
+        handleImpact(fallVelocity);
+      }
+    }
+
+    function handleImpact(velocity) {
+      if (velocity > 12) { // Python high velocity damage impact checkpoint
+        currentState = 'impact';
+        changeAnimation('impact');
+        barCount--;
+        updateBarUI();
+        if (barCount <= 0) {
+          die();
+          return;
+        }
+        setTimeout(() => {
+            runActionTicker();
+        }, 1000);
+      }
+
+      else{
+        currentState = 'idle';
+        changeAnimation('idle');
+        setTimeout(() => {
+            runActionTicker();
+        }, 1800);
+      }
+      
+    }
+
+    function feed() {
+        if (currentState === 'dead') return;
+        
+        if (runInterval) clearInterval(runInterval);
+        if (actionTimeout) clearTimeout(actionTimeout);
+
+        currentState = 'eating';
+        changeAnimation('eat');
+
+        // Explicitly make sure the window is interactive during the meal
+        window.electronAPI.setIgnoreMouse(false);
+
+        setTimeout(() => {
+            if (currentState === 'eating') {
+            barCount++;
+            if (barCount > 5) barCount = 5;
+            updateBarUI();
+            
+            // Forces the window to stay interactive for human inputs
+            window.electronAPI.setIgnoreMouse(false);
+            changeAnimation('idle');
+            
+            // Put the state engine on a 50ms breather.
+            // This lets the browser window update its boundaries completely 
+            // before moving calculations take over.
+            setTimeout(() => {
+                if (currentState === 'eating' || currentState === 'idle') {
+                currentState = 'idle'; // Reset state away from eating lockout
+                runActionTicker();
+                }
+            }, 50);
+            }
+        }, 1500);
+    }
+
+    function die() {
+      currentState = 'dead';
+      changeAnimation('ded');
+      if (runInterval) clearInterval(runInterval);
+      if (actionTimeout) clearTimeout(actionTimeout);
+      barCount = 0;
+      updateBarUI();
+      setTimeout(()=>{changeAnimation('corpse')},430)
+      setTimeout(()=>{window.electronAPI.exitApp()},5500)
+    }
+
+    setInterval(() => {
+      if (currentState === 'dead') return;
+      barCount--;
+      updateBarUI();
+      if (barCount <= 0) {
+        die();
+      }
+    }, 600 * 1000);
+
+    function updateBarUI() {
+      if (barCount < 0) barCount = 0;
+      barImg.src = `./assets/bar${barCount}.png`;
+    }
+
+    // --- Drag and Drop Logic ---
+    let isDragging = false;
+
+    hitbox.addEventListener('pointerdown', (e) => {
+      if (currentState === 'dead' || currentState === 'eating') return;
+      
+      if (e.button === 0) { 
+        isDragging = true;
+        currentState = 'dragging';
+        changeAnimation('pickup');
+
+        if (runInterval) clearInterval(runInterval);
+        if (actionTimeout) clearTimeout(actionTimeout);
+
+        // Force snap the window center to the cursor instantly on click
+        x = e.screenX - 75;
+        y = e.screenY - 75;
+        window.electronAPI.moveWindow({ x, y });
+
+        hitbox.setPointerCapture(e.pointerId);
+        window.electronAPI.setIgnoreMouse(false);
+      }
+    });
+
+    hitbox.addEventListener('pointermove', (e) => {
+      if (!isDragging) return;
+
+      // Maintain perfect center tracking during mouse movement
+      x = e.screenX - 72;
+      y = e.screenY - 85;
+      window.electronAPI.moveWindow({ x, y });
+    });
+
+    hitbox.addEventListener('pointerup', (e) => {
+      if (!isDragging) return;
+      isDragging = false;
+      hitbox.releasePointerCapture(e.pointerId);
+
+      if (!barVar) {
+        window.electronAPI.setIgnoreMouse(true);
+      }
+      startFalling();
+    });
+
+    hitbox.addEventListener('mouseenter', () => {
+        if (currentState === 'dead') return;
+        window.electronAPI.setIgnoreMouse(false);
+        barVar = true;
+        if (barCount > 0) {
+            barImg.style.display = 'block';
+        }
+    });
+
+    hitbox.addEventListener('mouseleave', () => {
+        barVar = false;
+        barImg.style.display = 'none';
+        
+        // Keep mouse active if we are doing something critical
+        if (!['dragging', 'eating', 'dead'].includes(currentState)) {
+            window.electronAPI.setIgnoreMouse(true);
+        }
+    });
+
+    hitbox.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        // Ensure menu works during normal downtime states
+        if (!['dead', 'eating', 'dragging'].includes(currentState)) {
+            window.electronAPI.showContextMenu();
+        }
+    });
+
+    window.electronAPI.onFeedPet(() => {
+      feed();
+    });
+
+    window.electronAPI.onKillPet(() => {
+      die();
+    });
+
+  </script>
+</body>
+</html>
