@@ -1,7 +1,7 @@
-[LINK](sumanto.itch.io/sqrl)
+[LINK](https://sumanto.itch.io/sqrl)
 
 A desktop pet that runs on your taskbar.
 
 Made in 10th grade.
 
-Also check out [Desktop Platformer](sumanto.itcho.io/desktop-platformer), which is similar but you can control it
+Also check out [Desktop Platformer](https://sumanto.itcho.io/desktop-platformer), which is similar but you can control it
