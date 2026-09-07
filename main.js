@@ -33,14 +33,13 @@ app.whenReady().then(() => {
     }
   });
 
-  //win.webContents.openDevTools({ mode: 'detach' });
   win.loadFile('index.html');
 
   // Prevent mouse click-blocking on empty transparent pixels
   win.setIgnoreMouseEvents(true, { forward: true });
 
-  // Open DevTools during debugging if your squirrel is completely lost!
-  // win.webContents.openDevTools({ mode: 'detach' });
+  // Open DevTools 
+  //win.webContents.openDevTools({ mode: 'detach' });
 
   globalShortcut.register('CommandOrControl+Shift+Q', () => {
     app.quit();
@@ -78,6 +77,14 @@ ipcMain.on('show-context-menu', (event) => {
   ];
   const menu = Menu.buildFromTemplate(template);
   menu.popup(BrowserWindow.fromWebContents(event.sender));
+});
+
+ipcMain.handle('get-windows', async () => {
+  const { openWindows } = await import('get-windows');
+  return await openWindows({
+    screenRecordingPermission: false,
+    accessibilityPermission: false,
+  });
 });
 
 ipcMain.on('exit-app', () => {

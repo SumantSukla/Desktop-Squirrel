@@ -7,5 +7,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showContextMenu: () => ipcRenderer.send('show-context-menu'),
   onFeedPet: (callback) => ipcRenderer.on('feed-pet', (_event, value) => callback(value)),
   onKillPet: (callback) => ipcRenderer.on('kill-pet', (_event, value) => callback(value)),
-  exitApp: () => ipcRenderer.send('exit-app')
+  exitApp: () => ipcRenderer.send('exit-app'),
+  getWindows: () => ipcRenderer.invoke('get-windows'),
 });

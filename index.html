@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <title>sqrl</title>
   <style>
     body, html {
       margin: 0;
@@ -77,6 +78,10 @@
     let actionTimeout = null;
     let runInterval = null;
     let fallVelocity = 1; // Start with a small velocity boost so it doesn't get stuck
+    let windows = null;
+    let firstTime = true;
+    let currWin = false;
+    let currentInterval = 1000;
 
     // Initialize metrics asynchronously safely
     window.electronAPI.getScreenWorkArea().then((workArea) => {
@@ -96,6 +101,40 @@
         startFalling();
       }, 50);
     });
+
+    async function getWindows() {
+      try {
+        windows = await window.electronAPI.getWindows();
+
+        if (currWin && Array.isArray(windows)) {
+          const match = windows.find((win) => win.id === currWin.id);
+
+          const hasMoved = match && (
+            match.bounds.x !== currWin.bounds.x ||
+            match.bounds.y !== currWin.bounds.y ||
+            match.bounds.width !== currWin.bounds.width
+          );
+
+          if (hasMoved) {
+            x += match.bounds.x - currWin.bounds.x;
+            y += match.bounds.y - currWin.bounds.y;
+            window.electronAPI.moveWindow({ x, y });
+            currWin = match;
+
+            // Poll fast while actively moving to keep up smooth movement
+            currentInterval = 50; 
+          } else {
+            // Slow down to idle when stationary to save CPU/battery
+            currentInterval = 500; 
+          }
+        }
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setTimeout(getWindows, currentInterval);
+      }
+    }
+    getWindows()
     
     function changeAnimation(action) {
       petImg.src = `./assets/squirrel_${action}_${orientation}.gif`;
@@ -105,7 +144,6 @@
       if (['dead', 'dragging', 'falling', 'eating'].includes(currentState)) return;
 
       const num = Math.floor(Math.random() * 500) + 1;
-      console.log(num);
       if (num < 360) {
         idle();
       } else if (num < 450) {
@@ -129,7 +167,15 @@
 
     function run() {
       currentState = 'run';
-      const numx = Math.floor(Math.random() * (screenX - widgetWidth - 70)) + 50 + workAreaX;
+      let numx = null;
+      if(!currWin)
+      {
+        numx = Math.floor(Math.random() * (screenX - widgetWidth - 70)) + 50 + workAreaX;
+      }
+      else
+      {
+        numx = Math.floor(Math.random() * (currWin.bounds.width + 10)) + currWin.bounds.x - 80;
+      }
       orientation = numx > x ? 'right' : 'left';
       changeAnimation('run');
 
@@ -156,21 +202,37 @@
     function startFalling() {
       currentState = 'falling';
       fallVelocity = 1;
+      currWin = false;
       changeAnimation('fall');
       fallLoop();
     }
 
     function fallLoop() {
       if (currentState !== 'falling') return;
-
       const groundY = workAreaY + screenY - widgetHeight;
 
-      if (y < groundY) {
+      if(!firstTime)
+      {
+        
+        windows.forEach((win, index) => {
+          if (x + 80 > win.bounds.x && x + 70 < win.bounds.x + win.bounds.width && y + 150 > win.bounds.y && y + 150 < win.bounds.y + 10 && index != 0)
+          {
+            currWin = win;
+            y = currWin.bounds.y - 150;
+            window.electronAPI.moveWindow({ x, y });
+            handleImpact(fallVelocity);
+          }
+        });
+      }
+
+      if (y < groundY && !currWin) {
         y += fallVelocity;
         fallVelocity += 0.25; // Smooth gravity steps
         window.electronAPI.moveWindow({ x, y });
         requestAnimationFrame(fallLoop);
-      } else {
+      } 
+      
+      else if (!currWin){
         y = groundY;
         window.electronAPI.moveWindow({ x, y });
         handleImpact(fallVelocity);
@@ -178,6 +240,7 @@
     }
 
     function handleImpact(velocity) {
+      firstTime = false
       if (velocity > 12) { // Python high velocity damage impact checkpoint
         currentState = 'impact';
         changeAnimation('impact');
